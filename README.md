@@ -14,29 +14,29 @@
 
 ### 1. 克隆项目
 
-\`\`\`bash
-git clone https://github.com/你的用户名/moltbot-dingtalk.git
-cd moltbot-dingtalk
-\`\`\`
+```bash
+git clone https://github.com/wxhou/clawdbot-dingtalk.git
+cd clawdbot-dingtalk
+```
 
 ### 2. 配置环境变量
 
-\`\`\`bash
+```bash
 cp .env.example .env
-\`\`\`
+```
 
 编辑 .env 文件，配置钉钉 WebHook 和 Moltbot Token。
 
 ### 3. 运行服务
 
-\`\`\`bash
+```bash
 # 本地运行
 npm install
 npm start
 
 # 或使用 Docker
 docker compose up -d
-\`\`\`
+```
 
 ## 钉钉配置
 
@@ -52,4 +52,3 @@ docker compose up -d
 ## License
 
 MIT
-

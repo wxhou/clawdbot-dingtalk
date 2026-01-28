@@ -8,9 +8,10 @@
  */
 
 const express = require('express');
-const { exec } = require('child_process');
+const { exec, spawn } = require('child_process');
 const { promisify } = require('util');
 const crypto = require('crypto');
+const path = require('path');
 
 const execAsync = promisify(exec);
 
@@ -22,7 +23,7 @@ const CONFIG = {
   // 钉钉机器人 WebHook 密钥（安全设置）
   dingtalkSignKey: process.env.DINGTALK_SIGN_KEY || '',
 
-  // Moltbot CLI 路径（如果不在 PATH 中，需要完整路径）
+  // Moltbot CLI 路径
   moltbotPath: process.env.MOLTBOT_PATH || 'moltbot',
 
   // 钉钉 WebHook URL（用于发送消息回钉钉）
@@ -34,8 +35,14 @@ const CONFIG = {
   // 会话超时（毫秒）
   sessionTimeout: 5 * 60 * 1000,
 
+  // 请求限制（毫秒）
+  rateLimitWindow: 1000,
+
   // 会话存储
-  sessions: new Map()
+  sessions: new Map(),
+
+  // 请求记录（用于限速）
+  requestLog: new Map()
 };
 
 // 签名验证（钉钉安全设置）
@@ -90,34 +97,48 @@ async function sendToDingtalk(webhookUrl, message) {
   }
 }
 
-// 调用 Moltbot 发送消息
+// 调用 Moltbot 发送消息（使用 spawn 避免命令注入）
 async function sendToMoltbot(message, chatId) {
-  try {
-    // 使用 moltbot agent 命令发送消息
-    const { stdout, stderr } = await execAsync(
-      `${CONFIG.moltbotPath} agent --message "${message.replace(/"/g, '\\"')}" --timeout 120`,
-      { timeout: 130000 }
-    );
+  return new Promise((resolve) => {
+    try {
+      // 使用 spawn 避免命令注入
+      const child = spawn(CONFIG.moltbotPath, ['agent', '--message', message, '--timeout', '120'], {
+        timeout: 130000,
+        killSignal: 'SIGTERM'
+      });
 
-    // 解析输出
-    const response = stdout.trim();
+      let stdout = '';
+      let stderr = '';
 
-    // 如果输出为空，尝试从 stderr 获取
-    if (!response && stderr) {
-      return stderr.trim();
+      child.stdout.on('data', (data) => {
+        stdout += data.toString();
+      });
+
+      child.stderr.on('data', (data) => {
+        stderr += data.toString();
+      });
+
+      child.on('close', (code) => {
+        const response = stdout.trim();
+        if (response) {
+          resolve(response);
+        } else if (stderr) {
+          resolve(stderr.trim());
+        } else {
+          resolve('消息已发送，但未收到回复');
+        }
+      });
+
+      child.on('error', (error) => {
+        console.error('执行 Moltbot 失败:', error.message);
+        resolve(`处理失败: ${error.message}`);
+      });
+
+    } catch (error) {
+      console.error('调用 Moltbot 失败:', error.message);
+      resolve(`处理失败: ${error.message}`);
     }
-
-    return response || '消息已发送，但未收到回复';
-  } catch (error) {
-    console.error('调用 Moltbot 失败:', error.message);
-
-    // 超时等情况
-    if (error.killed) {
-      return '处理超时，请稍后再试';
-    }
-
-    return `处理失败: ${error.message}`;
-  }
+  });
 }
 
 // 获取会话 ID
@@ -135,6 +156,27 @@ function cleanupSessions() {
   }
 }
 
+// 检查速率限制
+function checkRateLimit(ip) {
+  const now = Date.now();
+  const lastRequest = CONFIG.requestLog.get(ip);
+
+  if (lastRequest && now - lastRequest < CONFIG.rateLimitWindow) {
+    return false;
+  }
+
+  CONFIG.requestLog.set(ip, now);
+
+  // 清理旧的记录
+  for (const [key, time] of CONFIG.requestLog.entries()) {
+    if (now - time > CONFIG.rateLimitWindow) {
+      CONFIG.requestLog.delete(key);
+    }
+  }
+
+  return true;
+}
+
 // 定时清理会话
 setInterval(cleanupSessions, CONFIG.sessionTimeout);
 
@@ -142,6 +184,13 @@ setInterval(cleanupSessions, CONFIG.sessionTimeout);
 app.post('/webhook/dingtalk', async (req, res) => {
   try {
     const { header, body } = req.body;
+
+    // 速率限制
+    const clientIp = req.ip || req.connection.remoteAddress;
+    if (!checkRateLimit(clientIp)) {
+      console.log('请求过于频繁:', clientIp);
+      return res.status(429).json({ error: '请求过于频繁' });
+    }
 
     // 验证签名（如果配置了）
     const timestamp = req.headers['x-dingtalk-signature-timestamp'];
@@ -177,8 +226,8 @@ app.post('/webhook/dingtalk', async (req, res) => {
 
       // 检查是否正在处理
       if (CONFIG.sessions.has(sessionId)) {
-        const session = CONFIG.sessions.get(sessionId);
-        await sendToDingtalk(CONFIG.dingtalkWebhookUrl, '请稍候，我正在思考...');
+        // 如果正在处理，发送忙碌通知但不结束
+        await sendToDingtalk(CONFIG.dingtalkWebhookUrl, '请稍候，我正在处理上一个请求...');
         return;
       }
 
