@@ -1,0 +1,43 @@
+version: '3.8'
+
+services:
+  moltbot-dingtalk-bridge:
+    image: node:20-alpine
+    container_name: moltbot-dingtalk-bridge
+    working_dir: /app
+    command: node index.js
+    environment:
+      - PORT=3000
+      # 钉钉机器人 WebHook URL（用于发送消息回钉钉）
+      - DINGTALK_WEBHOOK_URL=${DINGTALK_WEBHOOK_URL}
+      # 钉钉签名密钥（安全模式）
+      - DINGTALK_SIGN_KEY=${DINGTALK_SIGN_KEY}
+      # 钉钉关键字验证
+      - DINGTALK_KEYWORD=Moltbot
+      # Moltbot CLI 路径
+      - MOLTBOT_PATH=moltbot
+    volumes:
+      - ./:/app
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+    depends_on:
+      - moltbot-gateway
+
+  # Moltbot Gateway（如果需要）
+  moltbot-gateway:
+    image: ${CLAWDBOT_IMAGE:-moltbot:local}
+    container_name: moltbot-gateway
+    environment:
+      HOME: /home/node
+      TERM: xterm-256color
+      CLAWDBOT_GATEWAY_TOKEN: ${CLAWDBOT_GATEWAY_TOKEN}
+    volumes:
+      - ${CLAWDBOT_CONFIG_DIR:-~/.clawdbot}:/home/node/.clawdbot
+      - ${CLAWDBOT_CONFIG_DIR:-~/.clawdbot}/.npmrc:/home/node/.npmrc:ro
+      - ${CLAWDBOT_WORKSPACE_DIR:-./workspace}:/home/node/clawd
+    ports:
+      - "18789:18789"
+      - "18790:18790"
+    init: true
+    restart: unless-stopped
