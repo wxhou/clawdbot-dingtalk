@@ -54,7 +54,12 @@ async function sendToDingtalk(webhookUrl, message) {
 }
 
 function verifyDingtalkSignature(body, timestamp, sign) {
-  if (!CONFIG.dingtalkSecret || !timestamp || !sign) {
+  // 如果启用了签名验证但缺少必要参数，返回 false
+  if (CONFIG.dingtalkSecret && (!timestamp || !sign)) {
+    return false;
+  }
+  // 未配置密钥时不进行签名验证
+  if (!CONFIG.dingtalkSecret) {
     return true;
   }
 

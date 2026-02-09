@@ -11,7 +11,7 @@ services:
       # 钉钉机器人 WebHook URL（用于发送消息回钉钉）
       - DINGTALK_WEBHOOK_URL=${DINGTALK_WEBHOOK_URL}
       # 钉钉签名密钥（安全模式）
-      - DINGTALK_SIGN_KEY=${DINGTALK_SIGN_KEY}
+      - DINGTALK_SECRET=${DINGTALK_SECRET}
       # 钉钉关键字验证
       - DINGTALK_KEYWORD=OpenClaw
       # OpenClaw CLI 路径
